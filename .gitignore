@@ -1,2 +1,5 @@
 .vscode/
 Manual/
+*.log
+*.exe
+*.out

@@ -1,17 +1,21 @@
 #include "thread.h"
 
-void worker() {
+void worker()
+{
 	int id = self_id();
 
-	while (1) {
-		for (int i = 0; i < 10000; i++);
-		// printf("Thread running: %d\n", id);
+	while (1)
+	{
+		for (int i = 0; i < 1000000; i++)
+			;
+		printf("Thread running: %d\n", id);
 	}
 
 	end_thread();
 }
 
-int main() {
+int main()
+{
 	init_lib();
 	int main_thread = create_thread(NULL);
 
@@ -23,8 +27,8 @@ int main() {
 	create_thread(worker);
 	create_thread(worker);
 
-
 	timer_start();
-	while(1){
+	while (1)
+	{
 	}
 }

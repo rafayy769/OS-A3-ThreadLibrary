@@ -1,4 +1,6 @@
 #include "thread.h"
+#include <stdlib.h>
+#include <string.h>
 
 // mask used to ignore some signals
 // we need to ignore the alarm clock signal when we are doing critical stuff
@@ -9,19 +11,21 @@ sigset_t signal_mask;
 struct itimerval timer;
 
 // stores the pointer to the currently running thread
-struct TCB* running = NULL;
+struct TCB *running = NULL;
 int num_threads = 0;
 
-addr map_address(addr address) {
-	addr ret;
-	asm volatile("xor    %%fs:0x30,%0\n"
-			"rol    $0x11,%0\n"
-			: "=g" (ret)
-			  : "0" (address));
-	return ret;
+addr map_address(addr address)
+{
+    addr ret;
+    asm volatile("xor    %%fs:0x30,%0\n"
+                 "rol    $0x11,%0\n"
+                 : "=g"(ret)
+                 : "0"(address));
+    return ret;
 }
 
-void timer_start() {
+void timer_start()
+{
     timer.it_value.tv_sec = 0;
     timer.it_value.tv_usec = TIME_SLICE;
     timer.it_interval.tv_sec = 0;
@@ -40,117 +44,114 @@ void timer_start() {
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-void timer_stop() {
+void timer_stop()
+{
     timer.it_interval.tv_sec = 0;
     timer.it_interval.tv_usec = 0;
 
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-void enable_interrupts() {
+void enable_interrupts()
+{
     sigprocmask(SIG_UNBLOCK, &signal_mask, NULL);
 }
 
-void disable_interrupts() {
+void disable_interrupts()
+{
     sigprocmask(SIG_BLOCK, &signal_mask, NULL);
 }
 
-// Queue node, contains a pointer to next and a pointer to the TCB
-typedef struct QNode {
-    struct QNode* next;
-    struct TCB* tcb;
-} node;
-
-// Queue data structure, maintain a tail pointer as well as a head pointer for faster enqueue and removals
-typedef struct Queue {
-    node* head;
-    node* tail;
-    int size;
+typedef struct Queue
+{
+    struct TCB *threads[MAX_Q_ITEMS];
+    int curr_size;
 } queue;
 
 /**
  * @brief Creates a new queue
- * 
+ *
  * @return queue* Pointer to the newly created queue
  */
-queue* init_queue() {
-    queue* q = (queue*) malloc(sizeof(queue));
-    q->head = NULL;
-    q->tail = NULL;
-    q->size = 0;
+queue *init_queue()
+{
+    queue *q = (queue *)malloc(sizeof(queue));
+    for (int i = 0; i < MAX_Q_ITEMS; i++)
+    {
+        q->threads[i] = NULL;
+    }
+    q->curr_size = 0;
     return q;
 }
 
 /**
  * @brief Enqueues a TCB into the queue.
- * 
+ *
  * @param q The queue to enqueue into.
  * @param tcb The TCB to enqueue.
  * @return void
  */
-void enqueue(queue* q, struct TCB* tcb)
+void enqueue(queue *q, struct TCB *tcb)
 {
-    node* new_node = (node*) malloc(sizeof(node));
-    new_node->tcb = tcb;
-    new_node->next = NULL;
-    if (q->size == 0) 
+    if (q->curr_size == MAX_Q_ITEMS)
     {
-        q->head = new_node;
-        q->tail = new_node;
-    } 
-    else 
-    {
-        q->tail->next = new_node;
-        q->tail = new_node;
+        printf("Queue is full\n");
+        return;
     }
-    q->size++;
+    q->threads[q->curr_size++] = tcb;
 }
 
 /**
  * @brief Dequeue a thread from the queue.
- * 
+ *
  * @param q The queue to dequeue from.
  * @return struct TCB* The dequeued thread.
  */
-struct TCB* dequeue(queue* q)
+struct TCB *dequeue(queue *q)
 {
-    if (q->size == 0) 
+    if (q->curr_size == 0)
     {
+        printf("Queue is empty\n");
         return NULL;
     }
-
-    node* temp = q->head;
-    q->head = q->head->next;
-    q->size--;
-    struct TCB* tcb = temp->tcb;
-    free(temp);
+    struct TCB *tcb = q->threads[0];
+    for (int i = 0; i < q->curr_size - 1; i++)
+    {
+        q->threads[i] = q->threads[i + 1];
+    }
+    q->curr_size--;
     return tcb;
 }
 
-void print_queue(queue* q) {
-    node* temp = q->head;
-    while (temp != NULL) {
-        printf("%d ", temp->tcb->thread_id);
-        temp = temp->next;
+// print queue
+void print_queue(queue *q)
+{
+    printf("Queue: ");
+    for (int i = 0; i < q->curr_size; i++)
+    {
+        printf("%d ", q->threads[i]->thread_id);
     }
     printf("\n");
 }
 
 // Global queues for ready and finished threads
-queue* ready_queue;
-queue* finished_queue;
+queue *ready_queue;
+queue *finished_queue;
 
-void init_lib() {
+void init_lib()
+{
     ready_queue = init_queue();
     finished_queue = init_queue();
 }
 
 // returns id of the current thread
-int self_id() {
+int self_id()
+{
     return running->thread_id;
 }
 
-int get_time() {
+int get_time()
+{
     struct timeval t;
     gettimeofday(&t, NULL);
 
@@ -159,89 +160,103 @@ int get_time() {
 
 //--------------------------------------------------------------------------------------------------------------------------
 // manages the threads and decides on which thread to run next
-void scheduler(int signal_number) {
+void scheduler(int signal_number)
+{
     DEBUG("scheduler called \n");
-    DEBUG("running thread id: %d \n", running->thread_id);
+    // DEBUG("running thread id: %d \n", running->thread_id);
     // print state of queues
-    #ifdef SHOW_ERROR
-    DEBUG("ready queue: ");
-    print_queue(ready_queue);
-    DEBUG("finished queue: ");
-    print_queue(finished_queue);
-    #endif
+    // #ifdef SHOW_ERROR
+    //     DEBUG("ready queue: ");
+    //     print_queue(ready_queue);
+    //     DEBUG("finished queue: ");
+    //     print_queue(finished_queue);
+    // #endif
 
     // if the running thread is not finished, enqueue it
-    if (running->state != FINISHED) {
+    if (running == NULL)
+    {
+        DEBUG("running is null \n");
+        // running = dequeue(ready_queue);
+        return;
+    }
+    if (running->state != FINISHED)
+    {
+        running->state = READY;
         enqueue(ready_queue, running);
     }
 
-    // if there are no more threads to run, exit
-    if (ready_queue->size == 0) {
-        exit(0);
-    }
-
     // get the next thread to run
-    struct TCB* next_thread = dequeue(ready_queue);
+    struct TCB *next_thread = dequeue(ready_queue);
+    if (next_thread == NULL)
+    {
+        // no more threads to run
+        return;
+    }
     DEBUG("next thread id: %d \n", next_thread->thread_id);
-    struct TCB* prev_thread = running;
+    struct TCB *prev_thread = running;
     running = next_thread;
 
-    // if the next thread is finished, free its stack and call the scheduler again
-    if (next_thread->state == FINISHED) {
-        free(next_thread->stack);
-        scheduler(0);
-    }
-    prev_thread->state = READY;
+    // prev_thread->state = READY;
     next_thread->state = RUNNING;
 
     // switch to the next thread
-    switch_context(prev_thread, next_thread);    
+    switch_context(prev_thread, next_thread);
 }
 
-int create_thread(void (*callback)) {
-    
-    struct TCB* thread = (struct TCB*) malloc(sizeof(struct TCB));
+int create_thread(void(*callback))
+{
 
-	//Thread ID
-	thread->thread_id = ++num_threads;
+    struct TCB *thread = (struct TCB *)malloc(sizeof(struct TCB));
+
+    if (thread == NULL)
+    {
+        printf("Error: Could not allocate memory for thread\n");
+        return -1;
+    }
+
+    // Thread ID
+    thread->thread_id = ++num_threads;
 
     // Allocating the stack
-    thread->stack = (char*) malloc(STACK_SIZE);
+    thread->stack = (char *)malloc(STACK_SIZE);
     thread->stack_size = STACK_SIZE;
-    thread->sp = (addr)thread->stack + STACK_SIZE - sizeof(int); 
+    thread->sp = (addr)thread->stack + STACK_SIZE - sizeof(int);
 
     // setting the Program Counter to the thread callback_routine
-    thread->pc = (addr) callback;
+    thread->pc = (addr)callback;
     thread->callback_routine = callback;
-    thread->waiting_id = -1;    // no thread is waiting on it. used in the case of the "join" function
+    thread->waiting_id = -1; // no thread is waiting on it. used in the case of the "join" function
 
-    if (num_threads == 1) {
+    if (num_threads == 1)
+    {
         // this means we are creating the first thread, that is the main thread
         running = thread;
         running->state = RUNNING;
         DEBUG("created main thread with id: %d \n", running->thread_id);
     }
-    else {
+    else
+    {
         // set the PC and SP registers to the address of the function we passed
         sigsetjmp(thread->jbuf, 1);
         (thread->jbuf->__jmpbuf)[JB_SP] = map_address(thread->sp);
         (thread->jbuf->__jmpbuf)[JB_PC] = map_address(thread->pc);
         sigemptyset(&thread->jbuf->__saved_mask);
 
-        thread->state=READY;
-        
+        thread->state = READY;
+
         /*
         Task1: Add this thread to the ready queue
         */
 
-       enqueue(ready_queue, thread);
-       DEBUG("created thread with id: %d \n", thread->thread_id);
+        enqueue(ready_queue, thread);
+        DEBUG("created thread with id: %d \n", thread->thread_id);
     }
-       
-	return thread->thread_id;
+
+    return thread->thread_id;
 }
 
-void end_thread() {
+void end_thread()
+{
 
     DEBUG("ending thread with id: %d \n", running->thread_id);
 
@@ -259,7 +274,8 @@ void end_thread() {
     scheduler(-1);
 }
 
-void switch_context(struct TCB* old_thread, struct TCB* new_thread) {
+void switch_context(struct TCB *old_thread, struct TCB *new_thread)
+{
     DEBUG("switching context from %d to %d\n", old_thread->thread_id, new_thread->thread_id);
     // reset the timer for the new process that is going to run
     // so that i receives its full time slice
@@ -267,7 +283,8 @@ void switch_context(struct TCB* old_thread, struct TCB* new_thread) {
 
     // save the context of the current running thread
     int ret_val = sigsetjmp(old_thread->jbuf, 1);
-    if (ret_val == 1) {
+    if (ret_val == 1)
+    {
         enable_interrupts();
         return;
     }
@@ -280,17 +297,16 @@ void switch_context(struct TCB* old_thread, struct TCB* new_thread) {
 void yield()
 {
     DEBUG("yield called \n");
-    disable_interrupts();
+    // disable_interrupts();
     scheduler(0);
 }
 
-void sleep(int ms) 
+void sleep(int ms)
 {
     DEBUG("sleep called \n");
     int start_time = get_time();
-    disable_interrupts();
-    while (get_time() - start_time < ms) {
+    while (get_time() - start_time < ms)
+    {
         // busy-wait
     }
-    enable_interrupts();
 }
