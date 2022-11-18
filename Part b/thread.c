@@ -113,13 +113,17 @@ struct TCB *dequeue(queue *q)
 // print queue
 void print_queue(queue *q)
 {
-    printf("Queue: ");
-    for (int i = 0; i < q->curr_size; i++)
+    if (SHOW_ERROR_MSGS)
     {
-        printf("%d ", q->threads[i]->thread_id);
+        printf("Queue: ");
+        for (int i = 0; i < q->curr_size; i++)
+        {
+            printf("%d ", q->threads[i]->thread_id);
+        }
+        printf("\n");
     }
-    printf("\n");
 }
+
 // remove an element from the queue
 // returns the element if the element was found and removed
 // returns the NULL if the element was not found
@@ -141,123 +145,54 @@ struct TCB *remove_from_queue(queue *q, int tid)
     return NULL;
 }
 
-// implement a max heap priority queue using an array of TCB pointers of size MAX_Q_ITEMS.
-// the root of the heap is the thread with the highest priority
-// the heap is implemented using an array of pointers to TCBs
-// the children of a node at index i are at 2i+1 and 2i+2
-// the parent of a node at index i is at (i-1)/2
-// the heap is implemented using an array of pointers to TCBs
-
-typedef struct max_heap {
-    struct TCB* heap[MAX_Q_ITEMS];
-    int size;
-} priority_queue;
-
-priority_queue* init_priority_queue() 
-{
-    priority_queue* q = (priority_queue*) malloc(sizeof(priority_queue));
-    // initialize the heap size to 0
-    q->size = 0;
-    // initialize the heap array to NULL
-    for (int i = 0; i < MAX_Q_ITEMS; i++) {
-        q->heap[i] = NULL;
-    }
-    return q;
-}
-
-void swap(struct TCB** a, struct TCB** b) {
-    struct TCB* temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-void heapify(priority_queue* q, int i) {
-    int largest = i;
-    int left = 2*i + 1;
-    int right = 2*i + 2;
-
-    if (left < q->size && q->heap[left]->priority > q->heap[largest]->priority) {
-        largest = left;
-    }
-
-    if (right < q->size && q->heap[right]->priority > q->heap[largest]->priority) {
-        largest = right;
-    }
-
-    if (largest != i) {
-        swap(&q->heap[i], &q->heap[largest]);
-        heapify(q, largest);
-    }
-}
-
-void enqueue_priority(priority_queue* q, struct TCB* tcb) {
-    if (q->size == MAX_Q_ITEMS) {
-        return;
-    }
-
-    q->heap[q->size] = tcb;
-    q->size++;
-
-    int i = q->size - 1;
-    while (i != 0 && q->heap[(i-1)/2]->priority < q->heap[i]->priority) {
-        swap(&q->heap[i], &q->heap[(i-1)/2]);
-        i = (i-1)/2;
-    }
-}
-
-// function to increase priority of all threads in the queue
-void increase_priority(priority_queue* q) {
-    for (int i = 0; i < q->size; i++) {
-        q->heap[i]->priority++;
-    }
-}
-struct TCB* dequeue_priority(priority_queue* q) {
-    if (q->size == 0) {
-        return NULL;
-    }
-
-    if (q->size == 1) {
-        q->size--;
-        return q->heap[0];
-    }
-
-    struct TCB* root = q->heap[0];
-    q->heap[0] = q->heap[q->size-1];
-    q->size--;
-    heapify(q, 0);
-
-    increase_priority(q);
-
-    return root;
-}
-
-void print_priority_queue(priority_queue* q) {
-    for (int i = 0; i < q->size; i++) {
-        printf("%d ", q->heap[i]->thread_id);
-    }
-    printf("\n");
-}
-
 // search for a thread in the priority queue with the thread id
 // returns the thread if found
 // returns NULL if not found
-struct TCB* search_priority_queue(priority_queue* q, int tid) {
-    for (int i = 0; i < q->size; i++) {
-        if (q->heap[i]->thread_id == tid) {
-            return q->heap[i];
+struct TCB* search_priority_queue(queue* q, int tid) {
+    for (int i = 0; i < q->curr_size; i++) {
+        if (q->threads[i]->thread_id == tid) {
+            return q->threads[i];
         }
     }
     return NULL;
 }
 
-// Global queues for ready and finished threads
-priority_queue* ready_queue;
-queue* finished_queue;
+// goes through the queue and removes and returns the thread with the maximum priority. Rearranges things around.
+struct TCB* dequeue_with_priority(queue* q)
+{
+    if (q->curr_size == 0)
+    {
+        return NULL;
+    }
+    struct TCB* max = q->threads[0];
+    int max_index = 0;
+    for (int i = 1; i < q->curr_size; i++)
+    {
+        if (q->threads[i]->priority > max->priority)
+        {
+            max = q->threads[i];
+            max_index = i;
+        }
+    }
+    for (int i = max_index; i < q->curr_size - 1; i++)
+    {
+        q->threads[i] = q->threads[i + 1];
+    }
+    q->curr_size--;
+    for (int i = 0; i < q->curr_size; i++)
+    {
+        q->threads[i]->priority++;
+    }
+    return max;
+}
 
+// Global queues for ready and finished threads
+queue* ready_queue;
+queue* finished_queue;
 queue* blocked_queue;
 
 void init_lib() {
-    ready_queue = init_priority_queue();
+    ready_queue = init_queue();
     finished_queue = init_queue();
     blocked_queue = init_queue();
 }
@@ -277,26 +212,26 @@ int get_time() {
 //--------------------------------------------------------------------------------------------------------------------------
 // manages the threads and decides on which thread to run next
 void scheduler(int signal_number) {
-    // DEBUG("scheduler called \n");
-    // DEBUG("running thread id: %d \n", running->thread_id);
-    // print state of queues
+    DEBUG("scheduler called \n");
+    DEBUG("running thread id: %d \n", running->thread_id);
 
     // if the running thread is not finished, enqueue it
     if (running->state != FINISHED && running->state != BLOCKED) {
         DEBUG("enqueuing running thread \n");
         running->state = READY;
-        enqueue_priority(ready_queue, running);
+        enqueue(ready_queue, running);
     }
 
     // if there are no more threads to run, exit
-    if (ready_queue->size == 0) {
+    if (ready_queue->curr_size == 0) {
+        DEBUG("no more threads to run \n");
         enable_interrupts();
-        return;
+        exit(0);
     }
 
     // get the next thread to run
-    struct TCB* next_thread = dequeue_priority(ready_queue);
-    // DEBUG("next thread id: %d \n", next_thread->thread_id);
+    struct TCB* next_thread = dequeue_with_priority(ready_queue);
+    DEBUG("next thread id: %d \n", next_thread->thread_id);
     struct TCB* prev_thread = running;
     running = next_thread;
 
@@ -345,7 +280,7 @@ int create_thread(void (*callback), int priority) {
         /*
         Task1: Add this thread to the ready queue
         */
-        enqueue_priority(ready_queue, thread);
+        enqueue(ready_queue, thread);
         DEBUG("created thread with id: %d \n", thread->thread_id);
     }
        
@@ -354,7 +289,7 @@ int create_thread(void (*callback), int priority) {
 
 void end_thread() {
 
-    // DEBUG("ending thread with id: %d \n", running->thread_id);
+    DEBUG("ending thread with id: %d \n", running->thread_id);
 
     disable_interrupts();
     running->state = FINISHED;
@@ -366,11 +301,12 @@ void end_thread() {
     enqueue(finished_queue, running);
 
     if(running->waiting_id != -1) {
-        struct TCB* waiting_thread = search_priority_queue(ready_queue, running->waiting_id);
+        struct TCB* waiting_thread = search_priority_queue(blocked_queue, running->waiting_id);
         if (waiting_thread != NULL) {
+            DEBUG("unblocking thread with id: %d \n", waiting_thread->thread_id);
             waiting_thread->waiting_id = -1;
             waiting_thread->state = READY;
-            enqueue_priority(ready_queue, waiting_thread);
+            enqueue(ready_queue, waiting_thread);
         }
     }
 
@@ -380,7 +316,7 @@ void end_thread() {
 }
 
 void switch_context(struct TCB* old_thread, struct TCB* new_thread) {
-    // DEBUG("switching context from %d to %d\n", old_thread->thread_id, new_thread->thread_id);
+    DEBUG("switching context from %d to %d\n", old_thread->thread_id, new_thread->thread_id);
     // reset the timer for the new process that is going to run
     // so that i receives its full time slice
     setitimer(ITIMER_REAL, &timer, NULL);
@@ -426,8 +362,12 @@ void join(int thread_id)
     // search for the thread in the ready queue.
     // if found, set the waiting_id property of the thread to the id of the current thread
     // and block the current thread
+
+    DEBUG("join called by thread with id: %d on %d.\n", running->thread_id, thread_id);
+
     struct TCB* thread = search_priority_queue(ready_queue, thread_id);
     if (thread != NULL) {
+        DEBUG("thread with id: %d is waiting on thread with id: %d \n", running->thread_id, thread_id);
         thread->waiting_id = running->thread_id;
         block();
     }
@@ -448,7 +388,8 @@ void sem_init(struct Semaphore* sem, int value) {
 void sem_wait(struct Semaphore* sem)
 {
     sem->value--;
-    if (sem->value < 0) {
+    if (sem->value < 0) 
+    {
         running->state = BLOCKED;
         enqueue(sem->waiting_queue, running);
         scheduler(0);
@@ -462,8 +403,7 @@ void sem_post(struct Semaphore* sem)
     if (sem->value <= 0) {
         struct TCB* thread = dequeue(sem->waiting_queue);
         thread->state = READY;
-        enqueue_priority(ready_queue, thread);
-        // eh not so sure about this
+        enqueue(ready_queue, thread);
         scheduler(0);
     }
 }

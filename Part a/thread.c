@@ -62,12 +62,6 @@ void disable_interrupts()
     sigprocmask(SIG_BLOCK, &signal_mask, NULL);
 }
 
-typedef struct Queue
-{
-    struct TCB *threads[MAX_Q_ITEMS];
-    int curr_size;
-} queue;
-
 /**
  * @brief Creates a new queue
  *
@@ -123,15 +117,22 @@ struct TCB *dequeue(queue *q)
     return tcb;
 }
 
-// print queue
+/**
+ * @brief Prints the contents of the queue.
+ * 
+ * @param q The queue to print.
+ */
 void print_queue(queue *q)
 {
-    printf("Queue: ");
-    for (int i = 0; i < q->curr_size; i++)
+    if (SHOW_ERROR)
     {
-        printf("%d ", q->threads[i]->thread_id);
+        printf("Queue: ");
+        for (int i = 0; i < q->curr_size; i++)
+        {
+            printf("%d ", q->threads[i]->thread_id);
+        }
+        printf("\n");
     }
-    printf("\n");
 }
 
 // Global queues for ready and finished threads
@@ -163,14 +164,7 @@ int get_time()
 void scheduler(int signal_number)
 {
     DEBUG("scheduler called \n");
-    // DEBUG("running thread id: %d \n", running->thread_id);
-    // print state of queues
-    // #ifdef SHOW_ERROR
-    //     DEBUG("ready queue: ");
-    //     print_queue(ready_queue);
-    //     DEBUG("finished queue: ");
-    //     print_queue(finished_queue);
-    // #endif
+    DEBUG("running thread id: %d \n", running->thread_id);
 
     // if the running thread is not finished, enqueue it
     if (running == NULL)
@@ -190,6 +184,7 @@ void scheduler(int signal_number)
     if (next_thread == NULL)
     {
         // no more threads to run
+        enable_interrupts();
         return;
     }
     DEBUG("next thread id: %d \n", next_thread->thread_id);
@@ -297,7 +292,7 @@ void switch_context(struct TCB *old_thread, struct TCB *new_thread)
 void yield()
 {
     DEBUG("yield called \n");
-    // disable_interrupts();
+    disable_interrupts();
     scheduler(0);
 }
 

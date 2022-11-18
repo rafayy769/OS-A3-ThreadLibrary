@@ -62,6 +62,13 @@ struct Semaphore
 {
 };
 
+// This is the queue struct
+typedef struct Queue
+{
+    struct TCB *threads[MAX_Q_ITEMS];
+    int curr_size;
+} queue;
+
 // initialize the library and its variables (if any, like the queues)
 // its use depends on your implementation
 void init_lib();
