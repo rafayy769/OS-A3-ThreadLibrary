@@ -28,11 +28,11 @@ void worker() {
 	int id = self_id();
 
 	for (int i = 0; i < 5; i++) {
-		// printf("Thread: %d, Counter: %d\n", id, i);
-		// yield();
+		printf("Thread: %d, Counter: %d\n", id, i);
+		yield();
 	}
 
-	// end_thread();
+	end_thread();
 }
 
 int main() {

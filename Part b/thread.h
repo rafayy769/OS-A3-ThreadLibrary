@@ -16,10 +16,10 @@ typedef unsigned long addr;     // refers to addresses in our program
 // the timer is called after this much time has elapsed
 #define TIME_SLICE 100000; // in microseconds
 
-#define SHOW_ERROR 1
+#define SHOW_ERROR_MSGS 0
 
 #define DEBUG(...)\
-if(SHOW_ERROR)\
+if(SHOW_ERROR_MSGS)\
 {\
 	printf("\033[0;31m [Debug message]: ");\
 	printf("%s, %d ", __FUNCTION__, __LINE__);\
@@ -35,17 +35,10 @@ enum ThreadStates {
 	FINISHED
 };
 
-// Queue node, contains a pointer to next and a pointer to the TCB
-typedef struct QNode {
-    struct QNode* next;
-    struct TCB* tcb;
-} node;
-
-// Queue data structure, maintain a tail pointer as well as a head pointer for faster enqueue and removals
-typedef struct Queue {
-    node* head;
-    node* tail;
-    int size;
+typedef struct Queue
+{
+    struct TCB *threads[MAX_Q_ITEMS];
+    int curr_size;
 } queue;
 
 // the struct for a single thread
